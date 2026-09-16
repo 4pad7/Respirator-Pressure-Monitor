@@ -18,15 +18,12 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.util.Log
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.TextView
-import android.widget.Toast
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
@@ -34,9 +31,10 @@ class MainActivity : AppCompatActivity() {
     private val TAG = "RespiratorBLE"
 
     // 藍牙 UUID 設定，必須與 RTL8735 一致
-    private val SERVICE_UUID     = UUID.fromString("0000fff0-0000-1000-8000-00805f9b34fb")
-    private val CHAR_UUID        = UUID.fromString("0000fff1-0000-1000-8000-00805f9b34fb") // Notify
-    private val CONFIG_CHAR_UUID = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb") // Write (動態調參)
+    private val SERVICE_UUID      = UUID.fromString("0000fff0-0000-1000-8000-00805f9b34fb")
+    private val CHAR_UUID         = UUID.fromString("0000fff1-0000-1000-8000-00805f9b34fb") // Notify
+    private val CONFIG_CHAR_UUID  = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb") // Write (門檻調參)
+    private val PATIENT_CHAR_UUID = UUID.fromString("0000fff3-0000-1000-8000-00805f9b34fb") // Write (病房/病患/性別/時間)
     private val CLIENT_CHARACTERISTIC_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     private var bluetoothAdapter: BluetoothAdapter? = null
@@ -45,15 +43,12 @@ class MainActivity : AppCompatActivity() {
     private var isAlertShowing = false
     private var isDisconnectAlertShowing = false
 
-    // 警報音效與震動控制物件
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
 
-    // 動態調參本地變數
     private var customThresholdMmHg = 32.0f
     private var customDurationSec   = 1.0f
 
-    // 搜尋與自動重連相關 Handler & 變數
     private val discoveredDevices = ArrayList<BluetoothDevice>()
     private val deviceNamesList = ArrayList<String>()
     private var isScanning = false
@@ -67,6 +62,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatusLed: TextView
     private lateinit var tvStatusTitle: TextView
     private lateinit var tvStatusSub: TextView
+    private lateinit var etWard: EditText
+    private lateinit var etPatientId: EditText
+    private lateinit var spGender: Spinner
     private lateinit var etThreshold: EditText
     private lateinit var etDuration: EditText
     private lateinit var btnApplySettings: Button
@@ -75,24 +73,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvRightCheek: TextView
     private lateinit var tvChin: TextView
 
-    // 連線狀態 Enum
     enum class ConnectionState {
-        CONNECTED,     // 🟢 綠燈：正常連線中
-        RECONNECTING,  // 🟠 橘燈：背景重連中 / 搜尋中
-        DISCONNECTED   // 🔴 紅燈：連線中斷 / 超時警告
+        CONNECTED, RECONNECTING, DISCONNECTED
     }
 
+    @SuppressLint("MissingPermission")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 保持螢幕常亮，防止系統 Doze 休眠關閉藍牙
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_main)
 
-        // 綁定 UI 元件
         layoutStatusCard = findViewById(R.id.layoutStatusCard)
         tvStatusLed = findViewById(R.id.tvStatusLed)
         tvStatusTitle = findViewById(R.id.tvStatusTitle)
         tvStatusSub = findViewById(R.id.tvStatusSub)
+        etWard = findViewById(R.id.etWard)
+        etPatientId = findViewById(R.id.etPatientId)
+        spGender = findViewById(R.id.spGender)
         etThreshold = findViewById(R.id.etThreshold)
         etDuration = findViewById(R.id.etDuration)
         btnApplySettings = findViewById(R.id.btnApplySettings)
@@ -101,11 +98,15 @@ class MainActivity : AppCompatActivity() {
         tvRightCheek = findViewById(R.id.tvRightCheek)
         tvChin = findViewById(R.id.tvChin)
 
+        // 初始化性別下拉選單
+        val genderOptions = arrayOf("不指定", "男 (M)", "女 (F)")
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, genderOptions)
+        spGender.adapter = adapter
+
         btnApplySettings.setOnClickListener {
             applyAndSyncSettings()
         }
 
-        // 點擊狀態卡片可手動重試搜尋
         layoutStatusCard.setOnClickListener {
             if (bluetoothGatt == null && !isScanning) {
                 startBleDiscovery()
@@ -118,13 +119,12 @@ class MainActivity : AppCompatActivity() {
         startBleDiscovery()
     }
 
-    // 💡 動態更新 APP 藍牙指示燈與狀態說明註解
     private fun updateConnectionUI(state: ConnectionState, deviceName: String = "") {
         runOnUiThread {
             when (state) {
                 ConnectionState.CONNECTED -> {
                     tvStatusLed.text = "🟢"
-                    layoutStatusCard.setBackgroundColor(Color.parseColor("#E8F5E9")) // 淺綠背景
+                    layoutStatusCard.setBackgroundColor(Color.parseColor("#E8F5E9"))
                     tvStatusTitle.text = "已正常連線：$deviceName"
                     tvStatusTitle.setTextColor(Color.parseColor("#2E7D32"))
                     tvStatusSub.text = "數據即時穩定接收中 (門檻: ${customThresholdMmHg}mmHg / ${customDurationSec}s)"
@@ -132,7 +132,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 ConnectionState.RECONNECTING -> {
                     tvStatusLed.text = "🟠"
-                    layoutStatusCard.setBackgroundColor(Color.parseColor("#FFF3E0")) // 淺橘背景
+                    layoutStatusCard.setBackgroundColor(Color.parseColor("#FFF3E0"))
                     tvStatusTitle.text = "連線訊號微弱 / 背景嘗試重連中..."
                     tvStatusTitle.setTextColor(Color.parseColor("#E65100"))
                     tvStatusSub.text = "正在每 3 秒自動嘗試復原通訊，請將手機靠近裝置"
@@ -140,7 +140,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 ConnectionState.DISCONNECTED -> {
                     tvStatusLed.text = "🔴"
-                    layoutStatusCard.setBackgroundColor(Color.parseColor("#FFEBEE")) // 淺紅背景
+                    layoutStatusCard.setBackgroundColor(Color.parseColor("#FFEBEE"))
                     tvStatusTitle.text = "🚨 藍牙連線已斷開！"
                     tvStatusTitle.setTextColor(Color.parseColor("#C62828"))
                     tvStatusSub.text = "點擊此處重新搜尋 (若斷線超過 10 秒將響起醫療警告音)"
@@ -172,9 +172,48 @@ class MainActivity : AppCompatActivity() {
         customDurationSec = duration
 
         if (bluetoothGatt != null) {
+            // 第一步：先發送門檻設定
             sendConfigToBoard(customThresholdMmHg, customDurationSec)
+
+            // 💡 關鍵修復：延遲 400ms 避開 BLEBusy 衝突，再發送檔名資訊
+            Handler(Looper.getMainLooper()).postDelayed({
+                sendPatientIdAndTimeInfo()
+            }, 400)
         } else {
-            Toast.makeText(this, "門檻已更新(本地)，連線後將自動同步至裝置！", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "設定已更新，連線後將自動同步檔名與門檻！", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // 💡 打包發送 [病房|病人號|性別|時間標籤] 至 HUB 8735
+    @SuppressLint("MissingPermission")
+    private fun sendPatientIdAndTimeInfo() {
+        val ward = etWard.text.toString().trim()
+        val patientId = etPatientId.text.toString().trim()
+
+        val genderStr = when (spGender.selectedItemPosition) {
+            1 -> "M"
+            2 -> "F"
+            else -> ""
+        }
+
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+
+        val payload = "$ward|$patientId|$genderStr|$timeStamp"
+
+        val service = bluetoothGatt?.getService(SERVICE_UUID)
+        val patientChar = service?.getCharacteristic(PATIENT_CHAR_UUID)
+
+        if (patientChar != null) {
+            patientChar.value = payload.toByteArray(Charsets.UTF_8)
+            val success = bluetoothGatt?.writeCharacteristic(patientChar) ?: false
+            if (success) {
+                Log.i(TAG, "已成功同步檔名資訊至 HUB 8735: $payload")
+                Toast.makeText(this, "已成功同步並建立 SD 卡檔名：\n$payload.csv", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "同步失敗：藍牙底層忙碌，請再按一次套用！", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(this, "同步失敗：找不到 0000fff3 特徵，請確認開發板已燒錄最新韌體！", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -189,13 +228,7 @@ class MainActivity : AppCompatActivity() {
             buffer.putFloat(durationSec)
 
             configChar.value = buffer.array()
-            val success = bluetoothGatt?.writeCharacteristic(configChar) ?: false
-
-            if (success) {
-                Toast.makeText(this, "已成功同步新門檻 (${threshold}mmHg / ${durationSec}s) 至裝置！", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "同步失敗，請檢查藍牙連線！", Toast.LENGTH_SHORT).show()
-            }
+            bluetoothGatt?.writeCharacteristic(configChar)
         }
     }
 
@@ -268,7 +301,6 @@ class MainActivity : AppCompatActivity() {
                 lastConnectedDevice = gatt.device
                 val devName = gatt.device.name ?: "V_MASK 裝置"
 
-                // 🟢 綠燈：正常連線
                 updateConnectionUI(ConnectionState.CONNECTED, devName)
                 gatt.discoverServices()
 
@@ -277,8 +309,6 @@ class MainActivity : AppCompatActivity() {
                 bluetoothGatt = null
 
                 val devName = lastConnectedDevice?.name ?: "V_MASK 裝置"
-
-                // 🟠 橘燈：背景重連中
                 updateConnectionUI(ConnectionState.RECONNECTING, devName)
 
                 startDisconnectTimeout(devName)
@@ -299,10 +329,15 @@ class MainActivity : AppCompatActivity() {
                     gatt.writeDescriptor(descriptor)
                 }
 
+                // 💡 關鍵修復：連線成功後，分段錯開同步 (800ms 發送門檻，1300ms 發送檔名)
                 runOnUiThread {
                     Handler(Looper.getMainLooper()).postDelayed({
                         sendConfigToBoard(customThresholdMmHg, customDurationSec)
-                    }, 1000)
+                    }, 800)
+
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        sendPatientIdAndTimeInfo()
+                    }, 1300)
                 }
             }
         }
@@ -349,10 +384,10 @@ class MainActivity : AppCompatActivity() {
         }, 3000)
     }
 
+    @SuppressLint("MissingPermission")
     private fun startDisconnectTimeout(deviceName: String) {
         disconnectTimerHandler.postDelayed({
             if (bluetoothGatt == null && !isDisconnectAlertShowing) {
-                // 🔴 切換為紅燈並發出警報
                 updateConnectionUI(ConnectionState.DISCONNECTED, deviceName)
                 triggerDisconnectEmergencySound(deviceName)
             }
@@ -366,6 +401,7 @@ class MainActivity : AppCompatActivity() {
         isDisconnectAlertShowing = false
     }
 
+    @SuppressLint("MissingPermission")
     private fun triggerDisconnectEmergencySound(deviceName: String) {
         if (isDisconnectAlertShowing) return
         isDisconnectAlertShowing = true
@@ -470,6 +506,7 @@ class MainActivity : AppCompatActivity() {
         vibrator = null
     }
 
+    @SuppressLint("MissingPermission")
     override fun onDestroy() {
         super.onDestroy()
         cancelDisconnectTimers()

@@ -44,7 +44,6 @@
             android:clickable="true"
             android:focusable="true">
 
-            <!-- 圓形 LED 狀態圖示 (用大號 Emoji 表示 🔴 / 🟢 / 🟠，完美相容無須載入圖檔) -->
             <TextView
                 android:id="@+id/tvStatusLed"
                 android:layout_width="wrap_content"
@@ -79,7 +78,7 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- ⚙️ 動態調參設定卡片 -->
+        <!-- ⚙️ 病患與病房資訊 + 動態調參設定卡片 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -92,12 +91,90 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="⚙️ 護理警報動態門檻設定"
+                android:text="⚙️ 病房病患資訊與警報門檻設定"
                 android:textColor="#1565C0"
                 android:textSize="15sp"
                 android:textStyle="bold"
                 android:layout_marginBottom="12dp" />
 
+            <!-- 病房號輸入框 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="病房/床號 (例: BED01):"
+                    android:textColor="#333333"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/etWard"
+                    android:layout_width="120dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="textCapCharacters"
+                    android:hint="選填病房"
+                    android:textSize="14sp"
+                    android:gravity="center"
+                    android:background="@android:drawable/editbox_background" />
+            </LinearLayout>
+
+            <!-- 病人號輸入框 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="病患編號 (例: P12345):"
+                    android:textColor="#333333"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/etPatientId"
+                    android:layout_width="120dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="textCapCharacters"
+                    android:hint="選填病人號"
+                    android:textSize="14sp"
+                    android:gravity="center"
+                    android:background="@android:drawable/editbox_background" />
+            </LinearLayout>
+
+            <!-- 性別選擇下拉選單 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="病患性別:"
+                    android:textColor="#333333"
+                    android:textSize="13sp" />
+
+                <Spinner
+                    android:id="@+id/spGender"
+                    android:layout_width="120dp"
+                    android:layout_height="wrap_content"
+                    android:spinnerMode="dropdown" />
+            </LinearLayout>
+
+            <!-- 壓力門檻 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -124,6 +201,7 @@
                     android:background="@android:drawable/editbox_background" />
             </LinearLayout>
 
+            <!-- 超壓時間 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -154,7 +232,7 @@
                 android:id="@+id/btnApplySettings"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="套用門檻並同步至 HUB 8735 裝置"
+                android:text="套用設定並同步 SD 卡檔名與門檻"
                 android:backgroundTint="#1A73E8"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold" />
