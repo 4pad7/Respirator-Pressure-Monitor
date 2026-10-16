@@ -97,7 +97,7 @@
                 android:textStyle="bold"
                 android:layout_marginBottom="12dp" />
 
-            <!-- 病房號輸入框 -->
+            <!-- 病房號 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -124,7 +124,7 @@
                     android:background="@android:drawable/editbox_background" />
             </LinearLayout>
 
-            <!-- 病人號輸入框 -->
+            <!-- 病人號 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -151,7 +151,7 @@
                     android:background="@android:drawable/editbox_background" />
             </LinearLayout>
 
-            <!-- 性別選擇下拉選單 -->
+            <!-- 性別選擇 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -172,6 +172,60 @@
                     android:layout_width="120dp"
                     android:layout_height="wrap_content"
                     android:spinnerMode="dropdown" />
+            </LinearLayout>
+
+            <!-- 病患年紀 (etAge) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="病患年紀 (例: 65):"
+                    android:textColor="#333333"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/etAge"
+                    android:layout_width="120dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:hint="選填年紀"
+                    android:textSize="14sp"
+                    android:gravity="center"
+                    android:background="@android:drawable/editbox_background" />
+            </LinearLayout>
+
+            <!-- 記錄索引號 (etIndexNo) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="記錄索引號 (例: 001):"
+                    android:textColor="#333333"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/etIndexNo"
+                    android:layout_width="120dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="textCapCharacters"
+                    android:hint="選填索引號"
+                    android:textSize="14sp"
+                    android:gravity="center"
+                    android:background="@android:drawable/editbox_background" />
             </LinearLayout>
 
             <!-- 壓力門檻 -->

@@ -34,7 +34,7 @@ class MainActivity : AppCompatActivity() {
     private val SERVICE_UUID      = UUID.fromString("0000fff0-0000-1000-8000-00805f9b34fb")
     private val CHAR_UUID         = UUID.fromString("0000fff1-0000-1000-8000-00805f9b34fb") // Notify
     private val CONFIG_CHAR_UUID  = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb") // Write (門檻調參)
-    private val PATIENT_CHAR_UUID = UUID.fromString("0000fff3-0000-1000-8000-00805f9b34fb") // Write (病房/病患/性別/時間)
+    private val PATIENT_CHAR_UUID = UUID.fromString("0000fff3-0000-1000-8000-00805f9b34fb") // Write (病房/病患/性別/年紀/索引/時間)
     private val CLIENT_CHARACTERISTIC_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     private var bluetoothAdapter: BluetoothAdapter? = null
@@ -65,6 +65,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etWard: EditText
     private lateinit var etPatientId: EditText
     private lateinit var spGender: Spinner
+    private lateinit var etAge: EditText
+    private lateinit var etIndexNo: EditText
     private lateinit var etThreshold: EditText
     private lateinit var etDuration: EditText
     private lateinit var btnApplySettings: Button
@@ -90,6 +92,8 @@ class MainActivity : AppCompatActivity() {
         etWard = findViewById(R.id.etWard)
         etPatientId = findViewById(R.id.etPatientId)
         spGender = findViewById(R.id.spGender)
+        etAge = findViewById(R.id.etAge)
+        etIndexNo = findViewById(R.id.etIndexNo)
         etThreshold = findViewById(R.id.etThreshold)
         etDuration = findViewById(R.id.etDuration)
         btnApplySettings = findViewById(R.id.btnApplySettings)
@@ -172,10 +176,8 @@ class MainActivity : AppCompatActivity() {
         customDurationSec = duration
 
         if (bluetoothGatt != null) {
-            // 第一步：先發送門檻設定
             sendConfigToBoard(customThresholdMmHg, customDurationSec)
 
-            // 💡 關鍵修復：延遲 400ms 避開 BLEBusy 衝突，再發送檔名資訊
             Handler(Looper.getMainLooper()).postDelayed({
                 sendPatientIdAndTimeInfo()
             }, 400)
@@ -184,11 +186,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 💡 打包發送 [病房|病人號|性別|時間標籤] 至 HUB 8735
     @SuppressLint("MissingPermission")
     private fun sendPatientIdAndTimeInfo() {
         val ward = etWard.text.toString().trim()
         val patientId = etPatientId.text.toString().trim()
+        val ageStr = etAge.text.toString().trim()
+        val indexNo = etIndexNo.text.toString().trim()
 
         val genderStr = when (spGender.selectedItemPosition) {
             1 -> "M"
@@ -197,8 +200,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-
-        val payload = "$ward|$patientId|$genderStr|$timeStamp"
+        val payload = "$ward|$patientId|$genderStr|$ageStr|$indexNo|$timeStamp"
 
         val service = bluetoothGatt?.getService(SERVICE_UUID)
         val patientChar = service?.getCharacteristic(PATIENT_CHAR_UUID)
@@ -325,11 +327,12 @@ class MainActivity : AppCompatActivity() {
                 if (characteristic != null) {
                     gatt.setCharacteristicNotification(characteristic, true)
                     val descriptor = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG_UUID)
-                    descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    gatt.writeDescriptor(descriptor)
+                    descriptor?.let {
+                        it.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        gatt.writeDescriptor(it)
+                    }
                 }
 
-                // 💡 關鍵修復：連線成功後，分段錯開同步 (800ms 發送門檻，1300ms 發送檔名)
                 runOnUiThread {
                     Handler(Looper.getMainLooper()).postDelayed({
                         sendConfigToBoard(customThresholdMmHg, customDurationSec)
@@ -342,29 +345,44 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // 💡 舊版 Android BLE Notification Callback
         @SuppressLint("MissingPermission")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             if (characteristic.uuid == CHAR_UUID) {
-                val data = characteristic.value
-                if (data.size == 17) {
-                    val buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
-                    val pNose = buffer.float
-                    val pLCheek = buffer.float
-                    val pRCheek = buffer.float
-                    val pChin = buffer.float
-                    val alarmStatus = data[16].toInt()
+                val data = characteristic.value ?: return
+                processPressureData(data, gatt.device?.name ?: "V_MASK 裝置")
+            }
+        }
 
-                    val devName = gatt.device.name ?: "V_MASK 裝置"
+        // 💡 新版 Android 13+ BLE Notification Callback (雙重覆蓋防止遺漏)
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
+            if (characteristic.uuid == CHAR_UUID) {
+                processPressureData(value, gatt.device?.name ?: "V_MASK 裝置")
+            }
+        }
 
-                    runOnUiThread {
-                        tvNose.text = "鼻樑: ${String.format("%.1f", pNose)} mmHg"
-                        tvLeftCheek.text = "左臉頰: ${String.format("%.1f", pLCheek)} mmHg"
-                        tvRightCheek.text = "右臉頰: ${String.format("%.1f", pRCheek)} mmHg"
-                        tvChin.text = "下巴: ${String.format("%.1f", pChin)} mmHg"
+        // 💡 核心數據解析與 UI 更新方法
+        private fun processPressureData(data: ByteArray, devName: String) {
+            if (data.size >= 17) {
+                val buffer = ByteBuffer.wrap(data, 0, 16).order(ByteOrder.LITTLE_ENDIAN)
+                val pNose = buffer.float
+                val pLCheek = buffer.float
+                val pRCheek = buffer.float
+                val pChin = buffer.float
+                val alarmStatus = data[16].toInt() and 0xFF
 
-                        if (alarmStatus == 0x01) {
-                            triggerEmergencyPopup(pNose, pLCheek, pRCheek, pChin, devName)
-                        }
+                runOnUiThread {
+                    tvNose.text = "鼻樑: ${String.format("%.1f", pNose)} mmHg"
+                    tvLeftCheek.text = "左臉頰: ${String.format("%.1f", pLCheek)} mmHg"
+                    tvRightCheek.text = "右臉頰: ${String.format("%.1f", pRCheek)} mmHg"
+                    tvChin.text = "下巴: ${String.format("%.1f", pChin)} mmHg"
+
+                    if (alarmStatus == 0x01) {
+                        triggerEmergencyPopup(pNose, pLCheek, pRCheek, pChin, devName)
                     }
                 }
             }
@@ -458,7 +476,7 @@ class MainActivity : AppCompatActivity() {
                 """.trimIndent()
 
                 AlertDialog.Builder(this)
-                    .setTitle("⚠️ 護理緊急警告：$deviceName 壓迫超標 ⚠️")
+                    .setTitle("⚠️ 護理緊急警告：$deviceName 壓迫超標 ⚠️️")
                     .setMessage(msg)
                     .setCancelable(false)
                     .setPositiveButton("已處理並重置警告") { _, _ ->
